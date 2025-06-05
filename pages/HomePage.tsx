@@ -96,7 +96,7 @@ const HomePage: React.FC = () => {
           <p className="text-lg md:text-xl text-gray-200 mb-8 max-w-3xl mx-auto drop-shadow-lg">
             Join a global community of coffee enthusiasts. Trade or gift your unique coffee beans and discover new flavors from around the world.
         </p>
-        <div className="space-x-4">
+        <div className="flex flex-col space-y-4 md:flex-row md:space-x-4 md:space-y-0">
           <Link
             to="/listings"
               className="bg-coffee-primary hover:bg-coffee-secondary text-white font-semibold py-3 px-8 rounded-md text-lg transition-colors duration-300 shadow-lg"
