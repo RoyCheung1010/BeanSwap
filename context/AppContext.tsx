@@ -2,9 +2,12 @@ import React, { createContext, useContext, useState, ReactNode, useCallback, use
 import { User, BeanListing, RoastProfile, FlavorProfile, Review, Trade, AppAlert, Message, TradeRequestWithDetails } from '../types';
 import { FLAVOR_PROFILES_OPTIONS } from '../constants';
 import { doc, updateDoc, collection, addDoc, query, where, getDocs, onSnapshot, orderBy, getDoc, writeBatch, limit, QuerySnapshot, DocumentData } from "firebase/firestore"; // Import Firestore functions and writeBatch
-import { db } from '../src/firebase'; // Import the Firestore instance and fix path
+import { auth, db } from '../src/firebase'; // Import the Firestore instance and fix path
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'; // Import Firebase Storage functions
 import { storage } from '../src/firebase'; // Import the Firebase Storage instance and fix path
+import { onAuthStateChanged } from "firebase/auth";
+
+
 
 // Mock Data
 const MOCK_USERS: User[] = [
@@ -109,6 +112,7 @@ export interface MessageThread extends Trade {
 
 interface AppContextType {
   currentUser: User | null;
+  authLoading: boolean;
   users: User[];
   listings: BeanListing[];
   trades: Trade[];
@@ -116,7 +120,6 @@ interface AppContextType {
   unreadMessageCount: number;
   messageThreads: MessageThread[]; // Use the new interface
   alert: AppAlert | null;
-  setCurrentUser: (user: User | null) => void;
   updateUserProfile: (updatedProfile: User) => Promise<void>;
   addListing: (newListingData: Omit<BeanListing, 'id' | 'createdAt' | 'status' | 'userId'>) => Promise<void>;
   addReview: (newReviewData: Omit<Review, 'id' | 'createdAt'>) => Promise<void>;
@@ -136,6 +139,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [users, setUsers] = useState<User[]>(MOCK_USERS);
   const [listings, setListings] = useState<BeanListing[]>(MOCK_LISTINGS);
   const [trades, setTrades] = useState<Trade[]>(MOCK_TRADES);
@@ -148,22 +152,42 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Load initial user from local storage or default to null
   useEffect(() => {
-    const storedUserId = localStorage.getItem('beanSwapCurrentUser');
-    if (storedUserId) {
-      // Note: This still loads from mock users. Need to update to load from Firestore.
-      const user = MOCK_USERS.find(u => u.id === storedUserId);
-      if (user) setCurrentUser(user);
-    }
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        // User is signed in.
+        console.log("Firebase Auth user found:", firebaseUser);
+  
+        // Now, get YOUR user profile from the 'users' collection in Firestore
+        const userDocRef = doc(db, 'users', firebaseUser.uid);
+        const userDocSnap = await getDoc(userDocRef);
+  
+        if (userDocSnap.exists()) {
+          // Combine Firebase Auth info with your Firestore profile info
+          const userProfileData = userDocSnap.data() as Omit<User, 'uid'>;
+          setCurrentUser({
+            ...userProfileData,
+            uid: firebaseUser.uid, // <-- The crucial Firebase UID
+            // Make sure 'id' is also set if you use it elsewhere, often it's the same as uid
+            id: userDocSnap.id 
+          });
+        } else {
+          // Handle case where user exists in Auth but not in your 'users' collection
+          console.error("User is authenticated but no profile found in Firestore.");
+          setCurrentUser(null);
+        }
+      } else {
+        // User is signed out.
+        console.log("No Firebase Auth user.");
+        setCurrentUser(null);
+      }
+      // Finished checking, app can now render
+      setAuthLoading(false);
+    });
+  
+    // Cleanup subscription on unmount
+    return () => unsubscribe();
   }, []);
 
-  const handleSetCurrentUser = useCallback((user: User | null) => {
-    setCurrentUser(user);
-    if (user) {
-      localStorage.setItem('beanSwapCurrentUser', user.id);
-    } else {
-      localStorage.removeItem('beanSwapCurrentUser');
-    }
-  }, []);
 
   const showAlert = useCallback((message: string, type: AppAlert['type']) => {
     setAlert({ message, type });
@@ -211,7 +235,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // Define the shape of the data we will add to Firestore
       const listingDataForFirestore = {
         ...newListing, // Spread properties from the newListing argument
-        userId: currentUser.id,
+        userId: currentUser.uid,
         createdAt: new Date().toISOString(),
         status: 'available', // Set default status
         imageUrl: newListing.imageUrl || null, // Use imageUrl from newListing or null
@@ -971,9 +995,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   return (
     <AppContext.Provider value={{ 
-        currentUser, users, listings, trades, newTradeRequestCount, unreadMessageCount, alert,
+        currentUser, authLoading, users, listings, trades, newTradeRequestCount, unreadMessageCount, alert,
         messageThreads,
-        setCurrentUser: handleSetCurrentUser, 
         updateUserProfile,
         addListing, 
         addReview,

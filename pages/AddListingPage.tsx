@@ -6,6 +6,8 @@ import { ROAST_OPTIONS, GEMINI_API_KEY_INFO } from '../constants';
 import { generateBeanDescription } from '../services/geminiService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { PhotographIcon, BeakerIcon, SparklesIcon } from '../components/Icons';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { storage } from '../src/firebase';
 
 const AddListingPage: React.FC = () => {
   const { currentUser, addListing, showAlert } = useAppContext();
@@ -25,6 +27,9 @@ const AddListingPage: React.FC = () => {
   const [roastedDate, setRoastedDate] = useState('');
   const [isDecaf, setIsDecaf] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
   
   const isApiKeySet = process.env.API_KEY && process.env.API_KEY !== "YOUR_API_KEY_HERE" && process.env.API_KEY.length > 10;
 
@@ -60,30 +65,107 @@ const AddListingPage: React.FC = () => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentUser || !currentUser.uid) {
+      showAlert('Could not verify user. Please try logging out and back in.', 'error');
+      console.error('handleSubmit called without a valid currentUser.uid');
+      return; // Stop the function from proceeding
+    }
     if (!name || !origin || !quantity) {
       showAlert('Please fill in all required fields.', 'error');
+      
       return;
     }
 
-    const newListing: Omit<BeanListing, 'id' | 'createdAt' | 'status' | 'userId'> = {
-      name,
-      origin,
-      roast,
-      flavorNotes,
-      description,
-      quantity,
-      imageUrl: imageUrl || undefined,
-      tradeOrGiveaway,
-      roaster,
-      boughtFrom,
-      roastedDate: roastedDate || undefined,
-      isDecaf,
-    };
-    addListing(newListing);
-    showAlert('Bean listing added successfully!', 'success');
-    navigate('/listings');
+    if (selectedFile) {
+      setIsUploading(true);
+      if (!currentUser || !currentUser.uid) {
+        showAlert('User session is invalid. Please log in again.', 'error');
+        setIsUploading(false);
+        return; // Stop the function from proceeding
+      }
+      console.log('Starting image upload for file:', selectedFile.name);
+
+      const metadata = {
+        customMetadata: {
+          'ownerId': currentUser.uid // This MUST match the key in your security rule
+        }
+      };
+
+      try {
+        const storageRef = ref(storage, `listingImages/${currentUser.uid}/${selectedFile.name}`);
+        const uploadTask = uploadBytesResumable(storageRef, selectedFile, metadata);
+
+        uploadTask.on('state_changed',
+          (snapshot) => {
+            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            setUploadProgress(progress);
+            console.log('Upload is ' + progress.toFixed(0) + '% done');
+          },
+          (error) => {
+            console.error('Image upload failed with error:', error);
+            showAlert('Image upload failed. Please try again.', 'error');
+            setIsUploading(false);
+            setSelectedFile(null);
+          },
+          () => {
+            // Upload completed successfully
+            console.log('Upload complete. Getting download URL...');
+            getDownloadURL(uploadTask.snapshot.ref).then((downloadURL) => {
+              console.log('Download URL obtained:', downloadURL);
+              setImageUrl(downloadURL);
+              setIsUploading(false);
+
+              // Now that we have the image URL, proceed with adding the listing
+              console.log('Proceeding to add listing...');
+              const newListing: Omit<BeanListing, 'id' | 'createdAt' | 'status' | 'userId'> = {
+                name,
+                origin,
+                roast,
+                flavorNotes,
+                description,
+                quantity,
+                imageUrl: downloadURL, // Use the uploaded image URL
+                tradeOrGiveaway,
+                roaster,
+                boughtFrom,
+                roastedDate: roastedDate || undefined,
+                isDecaf,
+              };
+              addListing(newListing);
+              showAlert('Bean listing added successfully!', 'success');
+              navigate('/listings');
+            });
+          }
+        );
+
+      } catch (error) {
+        console.error('Error during upload process:', error);
+        showAlert('An error occurred during image upload.', 'error');
+        setIsUploading(false);
+        setSelectedFile(null);
+      }
+    } else {
+      // No image selected, proceed with adding listing without imageUrl
+      const newListing: Omit<BeanListing, 'id' | 'createdAt' | 'status' | 'userId'> = {
+        name,
+        origin,
+        roast,
+        flavorNotes,
+        description,
+        quantity,
+        imageUrl: imageUrl || undefined, // Use existing imageUrl if any
+        tradeOrGiveaway,
+        roaster,
+        boughtFrom,
+        roastedDate: roastedDate || undefined,
+        isDecaf,
+      };
+      addListing(newListing);
+      showAlert('Bean listing added successfully!', 'success');
+      navigate('/listings');
+    }
   };
   
   const inputClass = "mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-coffee-primary focus:border-coffee-primary sm:text-sm";
@@ -160,8 +242,25 @@ const AddListingPage: React.FC = () => {
         </div>
         
         <div>
-          <label htmlFor="imageUrl" className={labelClass}><PhotographIcon className="w-4 h-4 inline mr-1"/>Image URL (Optional)</label>
-          <input type="url" id="imageUrl" value={imageUrl} onChange={e => setImageUrl(e.target.value)} className={`${inputClass.replace("border-gray-300", "border-coffee-dark")} text-gray-900 focus:ring-coffee-dark focus:border-coffee-dark`} placeholder="https://example.com/image.jpg"/>
+          <label htmlFor="image" className={labelClass}><PhotographIcon className="w-4 h-4 inline mr-1"/>Upload Image (Optional)</label>
+          <input 
+            type="file" 
+            id="image"
+            accept="image/*" // Accept only image files
+            onChange={e => setSelectedFile(e.target.files ? e.target.files[0] : null)}
+            className={`${inputClass.replace("border-gray-300", "border-coffee-dark")} text-gray-900 focus:ring-coffee-dark focus:border-coffee-dark file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-coffee-light file:text-coffee-primary hover:file:bg-coffee-secondary hover:file:text-white`}
+          />
+          {selectedFile && (
+            <div className="mt-2 text-sm text-gray-500">
+              Selected file: {selectedFile.name}
+            </div>
+          )}
+           {isUploading && (
+            <div className="mt-2 w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+              <div className="bg-coffee-accent h-2.5 rounded-full" style={{ width: `${uploadProgress}%` }}></div>
+            </div>
+          )}
+          {/* We can add an image preview here later if needed */}
         </div>
 
         <div>

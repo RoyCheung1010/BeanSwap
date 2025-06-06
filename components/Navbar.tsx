@@ -7,8 +7,9 @@ import { auth } from '../src/firebase'; // Import Firebase auth instance and fix
 import TradeMessageModal from './TradeMessageModal'; // Import the message modal component
 import { TradeRequestWithDetails } from '../types'; // Import the interface
 
+
 const Navbar: React.FC = () => {
-  const { currentUser, setCurrentUser, showAlert, newTradeRequestCount, unreadMessageCount, messageThreads, markMessagesAsRead } = useAppContext(); // Include messageThreads and markMessagesAsRead
+  const { currentUser, showAlert, newTradeRequestCount, unreadMessageCount, messageThreads, markMessagesAsRead } = useAppContext(); // Include messageThreads and markMessagesAsRead
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
   const [isMessageDropdownOpen, setIsMessageDropdownOpen] = useState(false); // State for message dropdown
@@ -23,9 +24,9 @@ const Navbar: React.FC = () => {
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      setCurrentUser(null); // Clear user in AppContext
+      // The onAuthStateChanged listener in AppContext will handle setting the user to null.
       showAlert('Logged out successfully.', 'success');
-      navigate('/login'); // Redirect to login page after logout
+      navigate('/login');
     } catch (error: any) {
       showAlert(`Logout failed: ${error.message}`, 'error');
       console.error('Logout Error:', error);

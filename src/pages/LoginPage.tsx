@@ -1,48 +1,31 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore'; // Import Firestore functions
-import { auth, db } from '../firebase'; // Import auth and db instances
+import { auth } from '../firebase'; // Import auth instance
 import { useAppContext } from '../../context/AppContext';
-import { User } from '../../types'; // Import the User type
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
-  const { showAlert, setCurrentUser } = useAppContext();
+  const { showAlert } = useAppContext();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null); // Clear previous errors
+    setError(null);
 
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const firebaseUser = userCredential.user;
-
-      // Fetch the user's profile from Firestore
-      const userDocRef = doc(db, 'users', firebaseUser.uid);
-      const userDocSnap = await getDoc(userDocRef);
-
-      if (userDocSnap.exists()) {
-        const authenticatedUser = userDocSnap.data() as User; // Cast data to User type
-        setCurrentUser(authenticatedUser);
-        showAlert('Login successful!', 'success');
-        navigate('/'); // Redirect to home page after successful login
-      } else {
-        // This case should ideally not happen if profile is created on signup
-        // but handle it as a fallback.
-        console.error('User profile not found in Firestore after login.');
-        // You might want to redirect to a profile completion page here
-        showAlert('Login successful, but profile data is missing.', 'info');
-        setCurrentUser(null); // Or set a minimal user object if needed
-        navigate('/'); // Redirect to home for now
-      }
+      // The only thing this function needs to do is sign in.
+      // AppContext will handle the rest.
+      await signInWithEmailAndPassword(auth, email, password);
+      
+      showAlert('Login successful!', 'success');
+      navigate('/'); // Redirect to home page after successful login
 
     } catch (error: any) {
       setError(error.message);
-      showAlert(`Login failed: ${error.message}`, 'error');
+      showAlert(`Login failed: Please check your credentials.`, 'error');
       console.error('Login Error:', error);
     }
   };
@@ -94,4 +77,4 @@ const LoginPage: React.FC = () => {
   );
 };
 
-export default LoginPage; 
+export default LoginPage;
